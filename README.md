@@ -15,3 +15,4 @@ There are 3 parts for this tool:
 
 [OPTIONAL] 5) A logstash agent to upload logs to ElasticSearch
 
+Included is the code for the Mongosniff tool to work properly with a small patch, in sniffer.cpp
