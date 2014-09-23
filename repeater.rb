@@ -31,11 +31,18 @@ func UnixNow() int64 {
 }
 
 func main() {
-	log.Print("Comienza Repeater")	 
+	fmt.Print("Comienza Repeater\n")	 
+	fmt.Printf("Poner como parametro el puerto a repetir\n")
+
+	srcport := os.Args[1] // port
+
+
+	fmt.Printf("Inicializo escuchando en el puerto %s y repito al puerto %s\n",srcport)
+
 
 	msgchan := make(chan []byte)
 
-	ln, err := net.Listen("tcp", ":9200")
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%s",srcport))
 	if err != nil {
 		// handle error
 	}
@@ -79,9 +86,8 @@ func handleConnection(c net.Conn, msgchan chan<- []byte,f *os.File) {
 }
 
 func printMessages(msgchan <-chan []byte ) {
-
 	var eth = "eth0"
-	log.Printf("Initializing Parser to replay on 6612...")
+	log.Printf("Initializing Replay...")
 
 	if handle, err := pcap.OpenLive(eth, 1600, false, 0); err != nil {
 	  panic(err)
