@@ -37,7 +37,7 @@ func main() {
 	srcport := os.Args[1] // port
 
 
-	fmt.Printf("Inicializo escuchando en el puerto %s y repito al puerto %s\n",srcport)
+	fmt.Printf("Inicializo escuchando en el puerto %s\n",srcport)
 
 
 	msgchan := make(chan []byte)
@@ -47,12 +47,6 @@ func main() {
 		// handle error
 	}
 	defer ln.Close()
-
-	fmt.Println("Abro el archivo")
-	f, err = os.OpenFile("/var/log/mysqlqueries.txt", os.O_CREATE|os.O_WRONLY, 0666)
-	 if err != nil {
-              panic(err)	
-	 }	
 	 
 	go printMessages(msgchan)
 
@@ -73,7 +67,7 @@ func main() {
 }
 
 func handleConnection(c net.Conn, msgchan chan<- []byte,f *os.File) {
-    buf := make([]byte, 4096)
+    buf := make([]byte, 10240)
     for {
         n, err := c.Read(buf)
         if err != nil || n == 0 {
@@ -89,7 +83,7 @@ func printMessages(msgchan <-chan []byte ) {
 	var eth = "eth0"
 	log.Printf("Initializing Replay...")
 
-	if handle, err := pcap.OpenLive(eth, 1600, false, 0); err != nil {
+	if handle, err := pcap.OpenLive(eth, 10240, false, 0); err != nil {
 	  panic(err)
 	} else if err := handle.SetBPFFilter("tcp and port 80"); err != nil {  // optional
 	  panic(err)
@@ -99,13 +93,9 @@ func printMessages(msgchan <-chan []byte ) {
 
 	        if tipo == "2"{
 	        	handle.WritePacketData(msg[1:])
-	        	//handleMysqlPacket(msg[1:])
 	        }
 
 	    } 
 	}
 }
 
-func handleMysqlPacket(data []byte) { //, f *os.File
-	log.Printf("En MongoParser con length %q", data)
-}
