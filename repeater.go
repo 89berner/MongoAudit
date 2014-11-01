@@ -5,15 +5,9 @@
 		"os"
 		"net"
 		"fmt"
-		//"github.com/akrennmair/gopcap"
 		"log"
 		"io"
-		"pcap"
-		//"math/rand"
-		"strings"
-		//"regexp"
-	//	"encoding/binary"
-	//	"bytes"
+		"code.google.com/p/gopacket/pcap"
 	)
 	
 	var start int64 = UnixNow()
@@ -32,9 +26,10 @@
 		return time.Now().Unix()
 	}
 	
+	// recibe una conexion que le manda paquetes y los repite a la interfaz
 	func main() {
 		fmt.Print("Comienza Repeater\n")	 
-		fmt.Printf("Poner como parametro el puerto a repetir\n")
+		fmt.Printf("Poner como parametro el puerto a escuchar lo que hay que repetir\n")
 	
 		srcport := os.Args[1] // port
 	
@@ -52,12 +47,7 @@
 				// handle error
 				continue
 			}
-			log.Printf("Nueva conexion de %v.", conn.RemoteAddr())
 			go handleConnection(conn,f)
-	
-		          tex := fmt.Sprintf("%s",conn.LocalAddr())
-		          tex = strings.Split(tex, ":")[0]
-		          localip = tex
 		}
 	}
 	
@@ -69,71 +59,66 @@
 	             }
 		}()
 	
-	    msgchan := make(chan []byte,1024*1024*50)
-	    go printMessages(msgchan)
-	
+	    msgchan := make(chan []byte) //1024*1024
+	    
 	    var contador = 0;
-	    var nzero = 0;
-	
+
 	    var size uint32
 	    var rest uint32
+	    var first = 1
 	
 	    for {
-	    		buf2 := make([]byte, 2)
-	    		
-		        for {
-			        xn, xerr := io.ReadFull(c, buf2)
+	    	buf2 := make([]byte, 2)
+		xn, xerr := io.ReadFull(c, buf2)
 			        
-			        if xerr != nil || xn == 0 {
-			            time.Sleep(1)
-			            log.Printf("Espero 1 seg para buf2..")
-			            xxn, xxerr := io.ReadFull(c, buf2)
-			            if xxerr != nil || xxn == 0 {
-				            log.Printf("Connection from %v closed with xxn: %d.", c.RemoteAddr(), xxn)
-				            continue
-				    }
-			        }
+		if xerr != nil || xn == 0 {
+			if (first == 0) {
+			  log.Printf("Error con buf2 con xn %d y err: %s ,.cierro..",xn,xerr)
+			}
+			close (msgchan)
+			c.Close()
+			return
+		}
+		
+		if (first == 1) {
+			first = 0
+			log.Printf("Nueva conexion de %v.", c.RemoteAddr())
+			go printMessages(msgchan)
+		}
+		
+		if (xn != 2) {
+			fmt.Printf("En primera lectura lei %d\n",xn)
+		}
+			        
+		rsize := buf2[0]
+		size = uint32(rsize)
+		rrest := buf2[1]
+		rest = uint32(rrest)
+		
+		if size == 0 {
+			continue
+		}
+			        
+		//log.Printf("Me dio size: %d y rest %d ",size,rest)
 
-			        if (xn != 2) {
-			        	fmt.Printf("En primera lectura lei %d\n",xn)
-			        }
-			        
-			        rsize := buf2[0]
-			        size = uint32(rsize)
-			        rrest := buf2[1]
-			        rest = uint32(rrest)
-			        
-			        if (size != 0) {
-			        	break
-			        }
-				
-			        log.Printf("Me dio size: %d y rest %d ",size,rest)
-		        
-		        	
-		        }
-
-	        
 	        xtam := size*100-rest
 	        
 		buf := make([]byte, size*100)
 		var n int
-	        for {
 	        n, err := io.ReadFull(c, buf)
 		        if err != nil || n == 0 {
-		        	log.Printf("Waiting with nzero: %d to read %d ",nzero,size*100)
-		        	nzero = nzero + 1
-		        	time.Sleep(1000 * time.Millisecond)
-		        	continue
+				close (msgchan)
+		        	log.Printf("Error en buf...")
+				c.Close()
+		        	return
 		        }
-	        	break
-	        }
 
 	        tam := n
 	
 	        contador = contador + 1
 	        if (contador % 100 == 0 ) {
-	        	fmt.Printf("handleConnection: Me dice que el tamaño total es %d con un size de %d y un rest de %d y el mensaje es %v\n", xtam, size,rest, buf2)
-	        	fmt.Printf("handleConnection: %d y lei %d bytes para mandar %d y xtam %d y mensaje %v\n", contador,n,tam, xtam,buf)
+	        	//fmt.Printf("handleConnection: Me dice que el tamaño total es %d con un size de %d y un rest de %d y el mensaje es %v\n", xtam, size,rest, buf2)
+	        	fmt.Printf("handleConnection: Cantidad %d y xtam %d\n", contador,tam)
 	        }
 	        
 	        msgchan <- buf[0:xtam]
@@ -151,24 +136,23 @@
 		var contador = 0;
 	
 		var eth = "eth0"
-		//log.Printf("Initializing Replay...")
 		
-	
 		if handle, err := pcap.OpenLive(eth, 10240, false, 0); err != nil {
-		  panic(err)
+		  //panic(err)
+		  fmt.Printf("Error en pcap!!!!")
 		} else if err := handle.SetBPFFilter("tcp and port 80"); err != nil {  // optional
-		  panic(err)
+		  //panic(err)
+		  fmt.Printf("Error en pcap!!!!")
 		} else {
-		       fmt.Println("Esperando para mandar de: %d", contador)
-		       for msg := range msgchan {
+		       //fmt.Println("Esperando para mandar de: %d", contador)
+		     for msg := range msgchan {
 		        contador = contador + 1
 		        
-		        if (contador % 100 == 0) {
-		        	fmt.Printf("printMessages: Cantidad: %d y tamaño %d\n", contador, len(msg))
-		        }
+		        fmt.Printf("printMessages: Cantidad: %d y tamaño %d\n", contador, len(msg))
 	
 		        handle.WritePacketData(msg)
-		    } 
+		    }
+		  fmt.Printf("Go routine terminada!!!!")
 		}
 	}
 	
