@@ -1,10 +1,4 @@
-/*
- * agent.go
- *
- * requires the gopcap library to be installed from:
- *   https://github.com/akrennmair/gopcap
- *
- */
+
 
 package main
 
@@ -14,11 +8,13 @@ import (
 	"os"
 	"net"
 	"fmt"
-	"github.com/akrennmair/gopcap"
+        "code.google.com/p/gopacket"
+        "code.google.com/p/gopacket/pcap"
 	"log"
 	"math/rand"
 	//"strings"
 	//"regexp"
+       "strconv"
 )
 
 var start int64 = UnixNow()
@@ -37,13 +33,28 @@ func UnixNow() int64 {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
+
+	fmt.Printf("Opciones son: 1) Interfaz 2) Puerto (puede ser * ) 3) IP DESTINO 4) PUERTO DESTINO 5)Timeout 6) Snaplen 7) Buffersize\n")
 	
 	eth := os.Args[1] // interface
 	port := os.Args[2] // port
 	destination := os.Args[3] // destination
 	destinationport := os.Args[4] // destination
+
+	timeout, err := strconv.Atoi(os.Args[5]); 
+	if err != nil { 
+	  // Invalid string 
+	} 
+
+	snaplen, err := strconv.Atoi(os.Args[6]); 
+	if err != nil { 
+	  // Invalid string 
+	} 	
 	
-	fmt.Printf("Opciones son: 1) Interfaz 2) Puerto (puede ser * ) 3) IP DESTINO 4) PUERTO DESTINO")
+	buffer, err := strconv.Atoi(os.Args[7]); 
+	if err != nil { 
+	  // Invalid string 
+	} 	
 
 	fmt.Printf("Inicializo escuchando en la interfaz %s bajo el puerto %s y mando a %s:%s\n",eth,port,destination,destinationport)
 
@@ -51,63 +62,127 @@ func main() {
 	log.SetFlags(0)
 
 	log.Printf("Initializing Agent sniffing on %s...",port)
-	iface, err := pcap.Openlive(eth, 10240, false, 0)
-	if iface == nil || err != nil {
-		msg := "unknown error"
-		if err != nil {
-			msg = err.Error()
-		}
-		log.Fatalf("Failed to open device: %s", msg)
+	
+	inactive, err := pcap.NewInactiveHandle(eth)
+	if err != nil {
+	  log.Fatal(err)
 	}
-
+	defer inactive.CleanUp()
+	
+	if err = inactive.SetTimeout(time.Duration(timeout) * time.Second); err != nil {
+	  log.Fatal(err)
+	}
+	
+	if err = inactive.SetSnapLen(snaplen); err != nil {
+	  log.Fatal(err)
+	}
+	
+	if err = inactive.SetBufferSize(buffer * 1024 * 1024); err != nil {
+	  log.Fatal(err)
+	}
+	
+	iface, err := inactive.Activate()  // after this, inactive is no longer valid
+	if err != nil {
+	  log.Fatal(err)
+	}
+	defer iface.Close()
+	
 	if port != "*" {
-		err = iface.Setfilter(fmt.Sprintf("tcp port %s",port))
+		err = iface.SetBPFFilter(fmt.Sprintf("tcp port %s",port))
 		if err != nil {
 			log.Fatalf("Failed to set port filter: %s", err.Error())
 		}
 	}
 
-	last := UnixNow()
-	var pkt *pcap.Packet = nil
-	var rv int32 = 0     
-
-	var period int32 = 3
-
 	log.Print("Ahora voy paquete por paquete")	 
+	
+	packetchan := make(chan gopacket.Packet)
+	go handlepackets(packetchan,destination,destinationport)
+	
+	var contador = 0
+
+	packetSource := gopacket.NewPacketSource(iface, iface.LinkType())
+	for pkt := range packetSource.Packets() {
+
+			tipo := make([]byte, 1)
+			tipo[0] = 2
+			pkt = pkt
+
+			packetchan <-  pkt
+			
+			contador = contador + 1
+			
+			//fmt.Println("Cantidad: %d", contador)
+			
+			if (contador % 100 == 0) {
+				stats, err := iface.Stats()
+				err = err
+				fmt.Printf("Dropped: %d y Cantidad %d\n", stats.PacketsDropped,contador)
+			}
+
+	}
+	
+	
+	
+}
+
+
+func handlepackets(msgchan <-chan gopacket.Packet, destination string, destinationport string ) {
+	
+	fmt.Println("En handlepackets")
+	
+	defer func() {
+             if r := recover(); r != nil {
+                  fmt.Println("Recovered in printMessages", r)
+             }
+	}()
 
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s",destination,destinationport))
 	if err != nil {
 		log.Fatalf("No me pude conectar a un parser: %s", err.Error())
 	}
+	
+	conn = conn
+	
+	var contador = 0;
 
-	for rv = 0; rv >= 0; {
-		for pkt, rv = iface.NextEx(); pkt != nil; pkt, rv = iface.NextEx() {
+	log.Printf("Iniciando handlepackets...")
+	
+	
+	for msg := range msgchan {
 
-			tipo := make([]byte, 1)
-			tipo[0] = 2
-			var pos byte = 14
+			if len(msg.Data()) > 0 {
+				var i int = len(msg.Data())
+				sizetosend := (i / 100) + 1
+								
+				var h, l uint8 = uint8(sizetosend>>8), uint8(sizetosend&0xff)
+				h = h
+				sl := make([]byte, 1)
+				sl[0] = l
 
-			pos += pkt.Data[pos] & 0x0F * 4
-			packetcount = packetcount + 1
-			pos += byte(pkt.Data[pos+12]) >> 4 * 4
+				missingtoadd := (sizetosend * 100) - len(msg.Data())
 
-			//if len(pkt.Data[pos:]) <= 0 {
-			//	continue
-			//}
-			
-			send := append(tipo,pkt.Data...)
+				var xh, xl uint8 = uint8(missingtoadd>>8), uint8(missingtoadd&0xff)
+				xh = xh
+				xsl := make([]byte, 1)
+				xsl[0] = xl
 
-			if _, err := conn.Write([]byte(send)); err != nil {
-				log.Fatalf("No me pude conectar a un parser: %s", err.Error())
-			}
+				rsend := append(sl,xsl...)
+				send := append(rsend,msg.Data()...)
 
-			if last < UnixNow()-int64(period) {
-				message := fmt.Sprintf("Paquetes por segundo: %d\n", packetcount / period)
-					
-				log.Print(message)
-				last = UnixNow()
-				packetcount = 0
-			}
+				//totalsize := len(send) + missingtoadd
+				
+				empty := make([]byte, missingtoadd)
+
+				xsend := append(send,empty...)
+
+				if _, err := conn.Write([]byte(xsend)); err != nil {
+					log.Fatalf("No me pude conectar a un parser: %s", err.Error())
+				}
+		
+			contador = contador + 1
+
+			fmt.Printf("%s Handle Cantidad: %d y tamaño %d \n",time.Now().Format("Mon Jan 2 15:04:05") , contador, len(msg.Data()),  )
 		}
-	}
+	} 
 }
